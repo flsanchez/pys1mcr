@@ -35,16 +35,38 @@ class MemoryCard:
   def plot_icon_1_for_block(self, block_number):
     # Hexa value (shift) indexed to the color palette (0 to F): Left nibble is the 2nd pixel.
     # ex: [0x4f, 0x9e] -> [f, 4, e, 9]
-    color_map = np.array(list(mc._blocks[block_number]._frames[0]._frame_data[0x60:0x80])).reshape((16, 2))
-    print([
-      hex(color[0]//16*16**3+color[0]%16*16**2+color[1]) 
+    color_map = np.array(
+      list(self._blocks[block_number]._frames[0]._frame_data[0x60:0x80])
+    ).reshape((16, 2))
+    # color map little endian [0xff, 0x7f] -> 0x7fff
+    color_map_16b = [
+      color[1]//16*16**3+color[1]%16*16**2+color[0]
       for color in color_map
-    ])
-    icon_data = np.array([
+    ]
+    
+    # color map to rgb
+    def transform_to_rgb(color):
+    # 0-4   Red       (0..31)         ;\Color 0000h        = Fully-Transparent
+    # 5-9   Green     (0..31)         ; Color 0001h..7FFFh = Non-Transparent
+    # 10-14 Blue      (0..31)         ; Color 8000h..FFFFh = Semi-Transparent (*)
+    # 15    Semi Transparency Flag    ;/(*) or Non-Transparent for opaque commands
+      rgb = []
+      for _ in range(0,3):
+        rgb.append(color & (0b11111))
+        color = color >> 5
+      return np.array(rgb)/31
+
+    color_map_rgb = [transform_to_rgb(color) for color in color_map_16b]
+    icon_data = np.concatenate([
       [pixel%16, pixel//16] for pixel in list(mc._blocks[block_number]._frames[1]._frame_data)
-    ]).reshape((16, 16))
-    plt.imshow(icon_data, cmap='binary')
-    plt.show()
+    ])
+    icon_data_rgb = np.array(
+      [color_map_rgb[pixel_value] for pixel_value in icon_data]
+    ).reshape((16, 16, 3))
+
+    plt.axis('off')
+    plt.imshow(icon_data_rgb)
+    plt.savefig('icon.png', bbox_inches='tight')
 
   def get_block_title(self, block_number):
     try:
@@ -59,6 +81,8 @@ class Block:
     self._block_data = block_data
     self._frames = None
     self._generate_frames()
+    self._icons = None
+    self._generate_icons()
 
   def _frame_generator(self):
     frame = 0
@@ -71,15 +95,23 @@ class Block:
       Frame(frame_data) for frame_data in self._frame_generator()
     ]
 
+  def _generate_icons(self):
+    pass
+
 
 class Frame:
   def __init__(self, frame_data):
     self._frame_data = frame_data
 
 
+class Icon:
+  def __init__(self, icon_data, color_palette):
+    pass
+
+
 if __name__ == "__main__":
-  #path = "data/ff-vii.mcd"
-  path = "data/a.mc"
+  path = "data/ff-vii.mcd"
+  #path = "data/a.mc"
   mc = MemoryCard(path)
   block_number = 1
   print(mc.get_block_title(block_number))
