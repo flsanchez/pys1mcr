@@ -1,3 +1,5 @@
 .vscode/
 .python-version
 *.png
+__pycache__/
+*.pyc

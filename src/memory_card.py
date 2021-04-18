@@ -1,5 +1,4 @@
-import numpy as np
-import matplotlib.pyplot as plt
+from icon import IconSet
 
 KB = 1024
 
@@ -32,41 +31,9 @@ class MemoryCard:
       Block(block_data) for block_data in self._block_generator()
     ]
 
-  def plot_icon_1_for_block(self, block_number):
-    # Hexa value (shift) indexed to the color palette (0 to F): Left nibble is the 2nd pixel.
-    # ex: [0x4f, 0x9e] -> [f, 4, e, 9]
-    color_map = np.array(
-      list(self._blocks[block_number]._frames[0]._frame_data[0x60:0x80])
-    ).reshape((16, 2))
-    # color map little endian [0xff, 0x7f] -> 0x7fff
-    color_map_16b = [
-      color[1]//16*16**3+color[1]%16*16**2+color[0]
-      for color in color_map
-    ]
-    
-    # color map to rgb
-    def transform_to_rgb(color):
-    # 0-4   Red       (0..31)         ;\Color 0000h        = Fully-Transparent
-    # 5-9   Green     (0..31)         ; Color 0001h..7FFFh = Non-Transparent
-    # 10-14 Blue      (0..31)         ; Color 8000h..FFFFh = Semi-Transparent (*)
-    # 15    Semi Transparency Flag    ;/(*) or Non-Transparent for opaque commands
-      rgb = []
-      for _ in range(0,3):
-        rgb.append(color & (0b11111))
-        color = color >> 5
-      return np.array(rgb)/31
-
-    color_map_rgb = [transform_to_rgb(color) for color in color_map_16b]
-    icon_data = np.concatenate([
-      [pixel%16, pixel//16] for pixel in list(mc._blocks[block_number]._frames[1]._frame_data)
-    ])
-    icon_data_rgb = np.array(
-      [color_map_rgb[pixel_value] for pixel_value in icon_data]
-    ).reshape((16, 16, 3))
-
-    plt.axis('off')
-    plt.imshow(icon_data_rgb)
-    plt.savefig('icon.png', bbox_inches='tight')
+  def plot_icons_for_block(self, block_number, save=False):
+    for icon in self._blocks[block_number]._icon_set._icons:
+      icon.plot_icon(save)
 
   def get_block_title(self, block_number):
     try:
@@ -81,7 +48,7 @@ class Block:
     self._block_data = block_data
     self._frames = None
     self._generate_frames()
-    self._icons = None
+    self._icon_set = None
     self._generate_icons()
 
   def _frame_generator(self):
@@ -96,17 +63,18 @@ class Block:
     ]
 
   def _generate_icons(self):
-    pass
+    raw_color_palette = self._frames[0]._frame_data[0x60:0x80]
+    number_of_icons = self._frames[0]._frame_data[0x02] & 0b1111
+    icon_set = IconSet(raw_color_palette)
+    icons_frames = self._frames[1:(1+number_of_icons)]
+    for icon_frame in icons_frames:
+      icon_set.generate_icon_from_data(icon_frame._frame_data)
+    self._icon_set = icon_set
 
 
 class Frame:
   def __init__(self, frame_data):
     self._frame_data = frame_data
-
-
-class Icon:
-  def __init__(self, icon_data, color_palette):
-    pass
 
 
 if __name__ == "__main__":
@@ -115,4 +83,4 @@ if __name__ == "__main__":
   mc = MemoryCard(path)
   block_number = 1
   print(mc.get_block_title(block_number))
-  mc.plot_icon_1_for_block(block_number)
+  mc.plot_icons_for_block(block_number, save=True)
