@@ -12,8 +12,10 @@ class MemoryCard:
 
   def _load_file_contents(self):
     expected_file_bytes_size = 128*KB
-    with open(path, 'rb') as f:
+    with open(self._path, 'rb') as f:
       file_contents = f.read()
+    if self._path.endswith(".gme"):
+      file_contents = file_contents[0xF40:]
     if len(file_contents) != expected_file_bytes_size:
       raise Exception(
         f"Incompatible size: expecting {expected_file_bytes_size} bytes, got {len(file_contents)} bytes instead"
@@ -78,9 +80,10 @@ class Frame:
 
 
 if __name__ == "__main__":
-  path = "data/ff-vii.mcd"
+  #path = "data/ff-vii.mcd"
+  path = "data/mixed_data.mcd"
   #path = "data/a.mc"
   mc = MemoryCard(path)
   block_number = 1
   print(mc.get_block_title(block_number))
-  mc.plot_icons_for_block(block_number, save=True)
+  mc.plot_icons_for_block(block_number)
