@@ -11,10 +11,10 @@ class MemoryCard:
   def __init__(self, path):
     self._path = path
     self._load_file_contents()
-    self._blocks = None
-    self._generate_blocks()
     self._directory_block = None
     self._generate_directory_block()
+    self._blocks = {}
+    self._generate_blocks()
 
   def _load_file_contents(self):
     expected_file_bytes_size = 128*KB
@@ -28,26 +28,32 @@ class MemoryCard:
       )
     self._file_contents = file_contents
 
-  def _block_generator(self):
-    block = 0
-    while block < 16:
-      yield self._file_contents[block*BLOCK_SIZE:(block+1)*BLOCK_SIZE]
-      block += 1
-
-  def _generate_blocks(self):
-    self._blocks = [
-      Block(block_data) for block_data in self._block_generator()
+  def _block_raw_data_fetcher(self, block_count, starting_block):
+    return self._file_contents[
+      starting_block*BLOCK_SIZE:(starting_block+block_count)*BLOCK_SIZE
     ]
 
+  def _generate_blocks(self):
+    block_counter = 1
+    game_ids_list = self._directory_block.get_game_ids_list()
+    for game_id in game_ids_list:
+      block_info = self._directory_block.get_info_for_game_id(game_id)
+      block_count = block_info['block_count']
+      block_raw_data = self._block_raw_data_fetcher(block_count, block_counter)
+      self._blocks[game_id] = FileBlock(block_raw_data, block_count)
+      block_counter += block_count
+
   def plot_icons_for_block(self, block_number, save=False):
-    for icon in self._blocks[block_number]._icon_set._icons:
+    game_id = self._directory_block.get_game_id_for_block_location_number(block_number)
+    for icon in self._blocks[game_id]._icon_set._icons:
       icon.plot_icon(save)
 
   def get_block_title(self, block_number):
+    game_id = self._directory_block.get_game_id_for_block_location_number(block_number)
     try:
-      title = self._blocks[block_number]._frames[0]._frame_data[0x04:(0x04+64)].decode('shift-jis')
+      title = self._blocks[game_id]._frames[0]._frame_data[0x04:(0x04+64)].decode('shift-jis')
     except UnicodeDecodeError:
-      title = self._blocks[block_number]._frames[0]._frame_data[0x04:(0x04+32)].decode('shift-jis')
+      title = self._blocks[game_id]._frames[0]._frame_data[0x04:(0x04+32)].decode('shift-jis')
     return title
 
   def _generate_directory_block(self):
@@ -67,9 +73,23 @@ class DirectoryBlock:
         FRAME_SIZE*(frame_number):FRAME_SIZE*(frame_number+1)
       ] for frame_number in range(1, 16)
     ]
-    self._directory_structure = [
+    parsed_directory_structure = [
       self._parse_directory_frame(frame) for frame in directory_frames
     ]
+    self._directory_structure = self._fill_game_ids_for_multi_block(parsed_directory_structure)
+
+  def _fill_game_ids_for_multi_block(self, parsed_directory_structure):
+    filled_directory_structure = []
+    previous_block_id = None
+    for block_number, block_info in enumerate(parsed_directory_structure):
+      block_in_use = block_info['block_state'] in BlockAllocationConstants.IN_USE
+      if not block_info['game_id'] and block_in_use:
+        block_info['game_id'] = previous_block_id
+      elif not block_info['game_id']:
+        block_info['game_id'] = "FREE"
+      filled_directory_structure.append(block_info)
+      previous_block_id = block_info['game_id']
+    return filled_directory_structure
 
   def _get_base_256(self, n):
     return np.array([256**i for i in range(n)])
@@ -92,9 +112,12 @@ class DirectoryBlock:
 
   def get_info_for_game_id(self, game_id):
     for block_info in self._directory_structure:
-      if block_info['game_id'] in block_info.keys():
+      if game_id == block_info['game_id']:
         return block_info
     raise Exception(f"Not info in directory structure for game {game_id}.")
+
+  def get_game_id_for_block_location_number(self, block_location_number):
+    return self._directory_structure[block_location_number-1]['game_id']
 
   def get_game_ids_list(self):
     return [
@@ -108,12 +131,13 @@ class BlockAllocationConstants:
   FIRST_BLOCK = 0x51
   MIDDLE_BLOCK = 0x52
   LAST_BLOCK = 0x53
-  ALL = {FIRST_BLOCK, MIDDLE_BLOCK, LAST_BLOCK}
+  IN_USE = {FIRST_BLOCK, MIDDLE_BLOCK, LAST_BLOCK}
 
 
-class Block:
-  def __init__(self, block_data):
+class FileBlock:
+  def __init__(self, block_data, block_count):
     self._block_data = block_data
+    self._block_count = block_count
     self._frames = None
     self._generate_frames()
     self._icon_set = None
