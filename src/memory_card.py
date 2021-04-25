@@ -80,17 +80,28 @@ class DirectoryBlock:
 
   def _parse_directory_frame(self, raw_data):
     block_state = np.dot(np.array(list(raw_data[:0x04])), self._get_base_256(4))
-    block_numbers = np.dot(np.array(list(raw_data[0x04:0x08])), self._get_base_256(4))//BLOCK_SIZE
+    block_count = np.dot(np.array(list(raw_data[0x04:0x08])), self._get_base_256(4))//BLOCK_SIZE
     next_block = np.dot(np.array(list(raw_data[0x08:0x0A])), self._get_base_256(2))
-    game_id = self._filter_ascii_chars(raw_data[0x0A:0x0A+12])
-    name = self._filter_ascii_chars(raw_data[0x0A+12:0x1F])
+    game_id = self._filter_ascii_chars(raw_data[0x0A:0x1F])
     return {
       'game_id': game_id,
-      'name': name,
       'block_state': block_state,
-      'block_numbers': block_numbers,
+      'block_count': block_count,
       'next_block_pointer': next_block,
     }
+
+  def get_info_for_game_id(self, game_id):
+    for block_info in self._directory_structure:
+      if block_info['game_id'] in block_info.keys():
+        return block_info
+    raise Exception(f"Not info in directory structure for game {game_id}.")
+
+  def get_game_ids_list(self):
+    return [
+      block_info['game_id'] for block_info 
+      in self._directory_structure 
+      if block_info['block_count'] > 0
+    ]
 
 
 class BlockAllocationConstants:
