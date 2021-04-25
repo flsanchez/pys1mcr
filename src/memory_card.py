@@ -1,3 +1,4 @@
+import codecs
 import numpy as np
 
 from icon import IconSet
@@ -5,6 +6,7 @@ from icon import IconSet
 KB = 1024
 BLOCK_SIZE = 8*KB
 FRAME_SIZE = BLOCK_SIZE//64
+MAX_BLOCKS = 15
 
 
 class MemoryCard:
@@ -42,6 +44,8 @@ class MemoryCard:
       block_raw_data = self._block_raw_data_fetcher(block_count, block_counter)
       self._blocks[game_id] = FileBlock(block_raw_data, block_count)
       block_counter += block_count
+    if self._directory_block.free_blocks_left():
+      self._blocks["BLANK"] = FileBlock.blank_block()
 
   def plot_icons_for_block(self, block_number, save=False):
     game_id = self._directory_block.get_game_id_for_block_location_number(block_number)
@@ -86,7 +90,7 @@ class DirectoryBlock:
       if not block_info['game_id'] and block_in_use:
         block_info['game_id'] = previous_block_id
       elif not block_info['game_id']:
-        block_info['game_id'] = "FREE"
+        block_info['game_id'] = "BLANK"
       filled_directory_structure.append(block_info)
       previous_block_id = block_info['game_id']
     return filled_directory_structure
@@ -125,7 +129,11 @@ class DirectoryBlock:
       in self._directory_structure 
       if block_info['block_count'] > 0
     ]
-
+  
+  def free_blocks_left(self):
+    return sum(
+      [block_info['block_count'] for block_info in self._directory_structure]
+    ) < MAX_BLOCKS
 
 class BlockAllocationConstants:
   FIRST_BLOCK = 0x51
@@ -142,6 +150,12 @@ class FileBlock:
     self._generate_frames()
     self._icon_set = None
     self._generate_icons()
+
+  @classmethod
+  def blank_block(cls):
+    data = codecs.decode('00'*BLOCK_SIZE, 'hex')
+    block_count = 0
+    return cls(data, block_count)
 
   def _frame_generator(self):
     frame = 0
@@ -174,6 +188,6 @@ if __name__ == "__main__":
   path = "data/mixed_data.mcd"
   #path = "data/a.mc"
   mc = MemoryCard(path)
-  block_number = 1
+  block_number = 10
   print(mc.get_block_title(block_number))
   mc.plot_icons_for_block(block_number)
