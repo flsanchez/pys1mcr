@@ -68,17 +68,21 @@ class DirectoryBlock:
 
   def __init__(self, raw_data):
     self._block_raw_data = raw_data
+    self._directory_frames = None
+    self._generate_directory_frames()
     self._directory_structure = None
     self._generate_directory_structure()
 
-  def _generate_directory_structure(self):
-    directory_frames = [
-      self._block_raw_data[
+  def _generate_directory_frames(self):
+    self._directory_frames = [
+      DirectoryFrame(self._block_raw_data[
         FRAME_SIZE*(frame_number):FRAME_SIZE*(frame_number+1)
-      ] for frame_number in range(1, 16)
+      ]) for frame_number in range(1, 16)
     ]
+
+  def _generate_directory_structure(self):
     parsed_directory_structure = [
-      self._parse_directory_frame(frame) for frame in directory_frames
+      frame._parse_directory_frame() for frame in self._directory_frames
     ]
     self._directory_structure = self._fill_game_ids_for_multi_block(parsed_directory_structure)
 
@@ -94,25 +98,6 @@ class DirectoryBlock:
       filled_directory_structure.append(block_info)
       previous_block_id = block_info['game_id']
     return filled_directory_structure
-
-  def _get_base_256(self, n):
-    return np.array([256**i for i in range(n)])
-
-  def _filter_ascii_chars(self, raw_bytes):
-    filtered_list = [char for char in list(raw_bytes) if 32 <= char <= 126]
-    return ''.join([chr(char) for char in filtered_list])
-
-  def _parse_directory_frame(self, raw_data):
-    block_state = np.dot(np.array(list(raw_data[:0x04])), self._get_base_256(4))
-    block_count = np.dot(np.array(list(raw_data[0x04:0x08])), self._get_base_256(4))//BLOCK_SIZE
-    next_block = np.dot(np.array(list(raw_data[0x08:0x0A])), self._get_base_256(2))
-    game_id = self._filter_ascii_chars(raw_data[0x0A:0x1F])
-    return {
-      'game_id': game_id,
-      'block_state': block_state,
-      'block_count': block_count,
-      'next_block_pointer': next_block,
-    }
 
   def get_info_for_game_id(self, game_id):
     for block_info in self._directory_structure:
@@ -134,6 +119,7 @@ class DirectoryBlock:
     return sum(
       [block_info['block_count'] for block_info in self._directory_structure]
     ) < MAX_BLOCKS
+
 
 class BlockAllocationConstants:
   FIRST_BLOCK = 0x51
@@ -160,7 +146,7 @@ class FileBlock:
   def _frame_generator(self):
     frame = 0
     while frame < 64:
-      yield self._block_data[frame*128:(frame+1)*128]
+      yield self._block_data[frame*FRAME_SIZE:(frame+1)*FRAME_SIZE]
       frame += 1
 
   def _generate_frames(self):
@@ -181,6 +167,33 @@ class FileBlock:
 class Frame:
   def __init__(self, frame_data):
     self._frame_data = frame_data
+
+
+class DirectoryFrame(Frame):
+  def _parse_directory_frame(self):
+    raw_data = self._frame_data
+    block_state = self._from_bytes_to_int(raw_data[:0x04])
+    block_count = self._from_bytes_to_int(raw_data[0x04:0x08])//BLOCK_SIZE
+    next_block = self._from_bytes_to_int(raw_data[0x08:0x0A])
+    game_id = self._filter_ascii_chars(raw_data[0x0A:0x1F])
+    return {
+      'game_id': game_id,
+      'block_state': block_state,
+      'block_count': block_count,
+      'next_block_pointer': next_block,
+    }
+
+  def _from_bytes_to_int(self, bytes_data):
+    return np.dot(
+      np.array(list(bytes_data)), self._get_base_256(len(bytes_data))
+    )
+
+  def _get_base_256(self, n):
+    return np.array([256**i for i in range(n)])
+
+  def _filter_ascii_chars(self, raw_bytes):
+    filtered_list = [char for char in list(raw_bytes) if 32 <= char <= 126]
+    return ''.join([chr(char) for char in filtered_list])
 
 
 if __name__ == "__main__":
