@@ -1,5 +1,7 @@
 import codecs
+from functools import reduce
 import numpy as np
+import struct
 
 from icon import IconSet
 
@@ -12,6 +14,7 @@ MAX_BLOCKS = 15
 class MemoryCard:
   def __init__(self, path):
     self._path = path
+    self._file_contents = None
     self._load_file_contents()
     self._directory_block = None
     self._generate_directory_block()
@@ -62,6 +65,17 @@ class MemoryCard:
 
   def _generate_directory_block(self):
     self._directory_block = DirectoryBlock(self._file_contents[:BLOCK_SIZE])
+
+  def delete_block_number(self, block_number):
+    # CLEAN DIRECTORY BLOCK
+    ### ON DIRECTORY BLOCK
+    ### REMOVE DIRECTORY FRAME
+    ### ADD BLANK FRAME ON THE LAST POSITION
+    ### FIX DIRECTORY STRUCTURE
+
+    # CLEAN BLOCKS DATA
+    game_id = self._directory_block.get_game_id_for_block_location_number(block_number)
+    self._blocks.pop(game_id)
 
 
 class DirectoryBlock:
@@ -114,7 +128,7 @@ class DirectoryBlock:
       in self._directory_structure 
       if block_info['block_count'] > 0
     ]
-  
+
   def free_blocks_left(self):
     return sum(
       [block_info['block_count'] for block_info in self._directory_structure]
@@ -170,30 +184,34 @@ class Frame:
 
 
 class DirectoryFrame(Frame):
+  def __init__(self, frame_data):
+    self._frame_data = frame_data
+    self._block_state = struct.unpack('I', frame_data[:0x04])[0]
+    self._block_size = struct.unpack('I', frame_data[0x04:0x08])[0]
+    self._next_block = struct.unpack('H', frame_data[0x08:0x0A])[0]
+    self._game_id = self._filter_ascii_chars(frame_data[0x0A:0x1F])
+
   def _parse_directory_frame(self):
-    raw_data = self._frame_data
-    block_state = self._from_bytes_to_int(raw_data[:0x04])
-    block_count = self._from_bytes_to_int(raw_data[0x04:0x08])//BLOCK_SIZE
-    next_block = self._from_bytes_to_int(raw_data[0x08:0x0A])
-    game_id = self._filter_ascii_chars(raw_data[0x0A:0x1F])
     return {
-      'game_id': game_id,
-      'block_state': block_state,
-      'block_count': block_count,
-      'next_block_pointer': next_block,
+      'game_id': self._game_id,
+      'block_state': self._block_state,
+      'block_count': self._block_size//BLOCK_SIZE,
+      'next_block_pointer': self._next_block,
     }
-
-  def _from_bytes_to_int(self, bytes_data):
-    return np.dot(
-      np.array(list(bytes_data)), self._get_base_256(len(bytes_data))
-    )
-
-  def _get_base_256(self, n):
-    return np.array([256**i for i in range(n)])
 
   def _filter_ascii_chars(self, raw_bytes):
     filtered_list = [char for char in list(raw_bytes) if 32 <= char <= 126]
     return ''.join([chr(char) for char in filtered_list])
+
+  def make_binary(self):
+    block_state = struct.pack('I', self._block_state)
+    block_size = struct.pack('I', self._block_size)
+    next_block = struct.pack('H', self._next_block)
+    game_title = struct.pack('20s', self._game_id.encode())
+    filler = struct.pack('97s', b'')
+    binary_frame = block_state + block_size + next_block + game_title + filler
+    checksum_byte = reduce(lambda b1, b2: b1 ^ b2, binary_frame)
+    return binary_frame + struct.pack('B', checksum_byte)
 
 
 if __name__ == "__main__":
@@ -201,6 +219,7 @@ if __name__ == "__main__":
   path = "data/mixed_data.mcd"
   #path = "data/a.mc"
   mc = MemoryCard(path)
-  block_number = 10
+  block_number = 1
+  mc.delete_block_number(block_number)
   print(mc.get_block_title(block_number))
   mc.plot_icons_for_block(block_number)
