@@ -77,15 +77,23 @@ class MemoryCard:
     game_id = self._directory_block.get_game_id_for_block_location_number(block_number)
     self._blocks.pop(game_id)
 
+  def make_binary(self):
+    pass
+
 
 class DirectoryBlock:
 
   def __init__(self, raw_data):
     self._block_raw_data = raw_data
+    self._header_frame = None
+    self._generate_header_frame()
     self._directory_frames = None
     self._generate_directory_frames()
     self._directory_structure = None
     self._generate_directory_structure()
+
+  def _generate_header_frame(self):
+    self._header_frame = DirectoryHeaderFrame(self._block_raw_data[:FRAME_SIZE])
 
   def _generate_directory_frames(self):
     self._directory_frames = [
@@ -133,6 +141,11 @@ class DirectoryBlock:
     return sum(
       [block_info['block_count'] for block_info in self._directory_structure]
     ) < MAX_BLOCKS
+
+  def make_binary(self):
+    binary_data = self._header_frame.make_binary()
+    binary_data += b''.join([frame.make_binary() for frame in self._directory_frames])
+    return binary_data
 
 
 class BlockAllocationConstants:
@@ -183,6 +196,22 @@ class Frame:
     self._frame_data = frame_data
 
 
+class DirectoryHeaderFrame(Frame):
+  def __init__(self, frame_data):
+    self._frame_data = frame_data
+    self._validate_data()
+
+  def _validate_data(self):
+    if self._frame_data != self._get_expected_header():
+      raise Exception('Invalid Header.')
+
+  def _get_expected_header(self):
+    return b"MC" + struct.pack('125s', b'') + struct.pack('B', 0x0E)
+
+  def make_binary(self):
+    return self._get_expected_header()
+
+
 class DirectoryFrame(Frame):
   def __init__(self, frame_data):
     self._frame_data = frame_data
@@ -219,7 +248,7 @@ if __name__ == "__main__":
   path = "data/mixed_data.mcd"
   #path = "data/a.mc"
   mc = MemoryCard(path)
-  block_number = 1
+  block_number = 12
   mc.delete_block_number(block_number)
   print(mc.get_block_title(block_number))
   mc.plot_icons_for_block(block_number)
